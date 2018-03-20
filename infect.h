@@ -30,6 +30,6 @@
 #ifndef _INFECT_H
 #define	_INFECT_H
 
-void do_infect(pid_t, char *, char *, char *);
+void do_infect(pid_t, int, char *, char *, char *);
 
 #endif /* !_INFECT_H */

